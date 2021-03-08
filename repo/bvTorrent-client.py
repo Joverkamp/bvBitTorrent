@@ -22,6 +22,7 @@ def printCommands():
     print("   [3] Request Chunk")
     print("   [4] Disconnect")
 
+
 def addToChunkMask(mask, i):
     maskList = list(mask)
     if maskList[i] == "0":
@@ -37,21 +38,21 @@ def getLine(conn):
             break
     return msg.decode()
 
-def getClientList(clientSock):
+def getClientList(trackerSock):
     msg = "CLIENT_LIST\n"
-    clientSock.send(msg.encode())
-    numClients = int(getLine(clientSock).rstrip())
+    trackerSock.send(msg.encode())
+    numClients = int(getLine(trackerSock).rstrip())
     clientList = {}
     for i in range(numClients):
-        rawClient = getLine(clientSock).rstrip().split(":")
+        rawClient = getLine(trackerSock).rstrip().split(":")
         clientIP = rawClient[0]
         clientPortMask = rawClient[1]
         clientList.update({clientIP: clientPortMask})
     return clientList
 
-def disconnect(clientSock):
+def disconnect(trackerSock):
     msg = "DISCONNECT!\n"
-    clientSock.send(msg.encode())
+    trackerSock.send(msg.encode())
     os._exit(1)
 
 
@@ -59,49 +60,54 @@ def findChunk(clientList, chunkNum):
     for client in clientList:
         port,mask = clientList[client].split(",")
         if mask[chunkNum] == "1":
-            print("Chunk Found")
             return (client, port)
     return False
 
 def requestChunk(peerInfo, chunkNum):
     peerIP = peerInfo[0]
     peerPort = int(peerInfo[1])
-    print("{}   {}   {}".format(peerIP,peerPort,chunkNum))
+    
     peerSock = socket(AF_INET, SOCK_STREAM)
     peerSock.connect( (peerIP, peerPort) )
-    msg = "123456789123\n"
-    peerSock.send(msg.encode())
 
-def handleTracker(clientSock):
+def handleTracker(trackerSock):
     connected = True
     while connected == True:
         printCommands()
         command = input("> ")
-        command = int(command)
-        if command == 1:
+        #Upadate tracker with mask
+        if command == "1":
             msg = "UPDATE_MASK\n"
-            clientSock.send(msg.encode())
+            trackerSock.send(msg.encode())
             msg = "{}\n".format(chunkMask) 
-            clientSock.send(msg.encode())
-        elif command == 2:
-            clientList = getClientList(clientSock)
+            trackerSock.send(msg.encode())
+        #Get and view clients connected to tracker
+        elif command == "2":
+            clientList = getClientList(trackerSock)
             printClients(clientList)
-        elif command == 3:
+        #Request and receive a chunk if it exists in swarm
+        elif command == "3":
             chunkNum = int(input("Which chunk would you like to get?"))
-            clientList = getClientList(clientSock)
+            clientList = getClientList(trackerSock)
             peerInfo = findChunk(clientList, chunkNum)
             if peerInfo == False:
-                print("Chunk not found")
+                print("Chunk does not exist in swarm. You're screwed")
             else:
                 requestChunk(peerInfo, chunkNum)
-        elif command == 4:
-            disconnect(clientSock)
+        #Disconnect from swarm
+        elif command == "4":
+            disconnect(trackerSock)
             connected = False
-
+        #Must print valid command
         else:
-            print("Invalid Command\n")
+            print("Invalid Command")
         print()
 
+
+#A peer has made a request for one of your chunks we can assume that we
+#We should have the chunk available to send to the peer as they have 
+#Already checked our chunk mask. However if somethin went wrong we should
+#Send a negative acknowledgement
 def handleClient(connInfo):
     peerConn, peerAddr = connInfo
     peerIP = peerAddr[0]
@@ -116,16 +122,16 @@ serverIP = argv[1]
 serverPort = int(argv[2])
 
 # Establish connection to tracker
-clientSock = socket(AF_INET, SOCK_STREAM)
-clientSock.connect( (serverIP, serverPort) )
+trackerSock = socket(AF_INET, SOCK_STREAM)
+trackerSock.connect( (serverIP, serverPort) )
 
 # Receive intitial file and chunk info
-fileName = getLine(clientSock).rstrip()
-chunkSize = int(getLine(clientSock).rstrip()) 
-numChunks = int(getLine(clientSock).rstrip())
+fileName = getLine(trackerSock).rstrip()
+chunkSize = int(getLine(trackerSock).rstrip()) 
+numChunks = int(getLine(trackerSock).rstrip())
 chunks = []
 for i in range(numChunks):
-    chunk = getLine(clientSock).split(",")
+    chunk = getLine(trackerSock).split(",")
     sz = int(chunk[0].rstrip())
     digest = chunk[1].rstrip()
     chunks.append((sz, digest))
@@ -134,16 +140,19 @@ for i in range(numChunks):
 port = "27120"
 chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
 ourClientInfo = "{},{}\n".format(port,chunkMask)
-clientSock.send(ourClientInfo.encode())
+trackerSock.send(ourClientInfo.encode())
 
+#This thread will be for communicating with the tracker
+threading.Thread(target=handleTracker, args=(trackerSock,),daemon=False).start()
 
-threading.Thread(target=handleTracker, args=(clientSock,),daemon=False).start()
-
+#Create a listening socket to receive requests from peers
 listener = socket(AF_INET, SOCK_STREAM)
 listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 listener.bind(('', int(port)))
 listener.listen(4)
 
+#Handle clients as they make requests. Only allow 4 clients to make requests
+#At a time as not to be overloaded
 running = True
 while running:
     try:
