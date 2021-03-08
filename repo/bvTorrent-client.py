@@ -63,8 +63,9 @@ def findChunk(clientList, chunkNum):
             return (client, port)
     return False
 
-def requestChunk(clientSock, peerInfo, chunkNum):
-    peerIP, peerPort = peerInfo
+def requestChunk(peerInfo, chunkNum):
+    peerIP = peerInfo[0]
+    peerPort = peerInfo[1]
     print("{}   {}   {}".format(peerIP,peerPort,chunkNum))
     peerSock = socket(AF_INET, SOCK_STREAM)
     peerSock.connect( (peerIP, peerPort) )
