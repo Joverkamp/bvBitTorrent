@@ -65,7 +65,7 @@ def findChunk(clientList, chunkNum):
 
 def requestChunk(peerInfo, chunkNum):
     peerIP = peerInfo[0]
-    peerPort = peerInfo[1]
+    peerPort = int(peerInfo[1])
     print("{}   {}   {}".format(peerIP,peerPort,chunkNum))
     peerSock = socket(AF_INET, SOCK_STREAM)
     peerSock.connect( (peerIP, peerPort) )
@@ -93,7 +93,7 @@ def handleTracker(clientSock):
             if peerInfo == False:
                 print("Chunk not found")
             else:
-                requestChunk(clientSock, peerInfo)
+                requestChunk(peerInfo, chunkNum)
         elif command == 4:
             disconnect(clientSock)
             connected = False
@@ -104,7 +104,7 @@ def handleTracker(clientSock):
 
 def handleClient(connInfo):
     peerConn, peerAddr = connInfo
-    peerIP = clientAddr[0]
+    peerIP = peerAddr[0]
     print("Recieved connection from {} {}".format(peerIP, peerAddr[1]))
 
 # Set server/port from command line
