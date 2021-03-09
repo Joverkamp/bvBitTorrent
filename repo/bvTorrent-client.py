@@ -22,8 +22,7 @@ def printCommands():
     print("   [3] Request Chunk")
     print("   [4] Disconnect")
 
-
-def addToChunkMask(i):
+def addToChunkMask(chunkMask,i):
     maskList = list(chunkMask)
     if maskList[i] == "0":
         maskList[i] = "1"
@@ -70,7 +69,23 @@ def requestChunk(peerInfo, chunkNum):
     peerSock = socket(AF_INET, SOCK_STREAM)
     peerSock.connect( (peerIP, peerPort) )
 
-def handleTracker(trackerSock):
+def handleTracker(trackerSock, listeningPort): 
+    # Receive intitial file and chunk info
+    fileName = getLine(trackerSock).rstrip()
+    chunkSize = int(getLine(trackerSock).rstrip()) 
+    numChunks = int(getLine(trackerSock).rstrip())
+    chunks = []
+    for i in range(numChunks):
+        chunk = getLine(trackerSock).split(",")
+        sz = int(chunk[0].rstrip())
+        digest = chunk[1].rstrip()
+        chunks.append((sz, digest))
+
+    #Send our information to the tracker server
+    chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
+    ourClientInfo = "{},{}\n".format(listeningPort,chunkMask)
+    trackerSock.send(ourClientInfo.encode())   
+
     connected = True
     while connected == True:
         printCommands()
@@ -113,51 +128,36 @@ def handleClient(connInfo):
     peerIP = peerAddr[0]
     print("Recieved connection from {} {}".format(peerIP, peerAddr[1]))
 
-# Set server/port from command line
-progname = argv[0]
-if len(argv) != 3:
-    print("Usage: python3 {} <IPaddress> <port>".format(progname))
-    exit(1)
-serverIP = argv[1]
-serverPort = int(argv[2])
+if __name__ == "__main__":
+    # Set server/port from command line
+    progname = argv[0]
+    if len(argv) != 3:
+        print("Usage: python3 {} <IPaddress> <port>".format(progname))
+        exit(1)
+    serverIP = argv[1]
+    serverPort = int(argv[2])
 
-# Establish connection to tracker
-trackerSock = socket(AF_INET, SOCK_STREAM)
-trackerSock.connect( (serverIP, serverPort) )
+    # Establish connection to tracker
+    trackerSock = socket(AF_INET, SOCK_STREAM)
+    trackerSock.connect( (serverIP, serverPort) )
+    listeningPort = "27120"
 
-# Receive intitial file and chunk info
-fileName = getLine(trackerSock).rstrip()
-chunkSize = int(getLine(trackerSock).rstrip()) 
-numChunks = int(getLine(trackerSock).rstrip())
-chunks = []
-for i in range(numChunks):
-    chunk = getLine(trackerSock).split(",")
-    sz = int(chunk[0].rstrip())
-    digest = chunk[1].rstrip()
-    chunks.append((sz, digest))
+    #This thread will be for communicating with the tracker
+    threading.Thread(target=handleTracker, args=(trackerSock,listeningPort,),daemon=False).start()
 
-#Send our information to the tracker server
-port = "27120"
-chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
-ourClientInfo = "{},{}\n".format(port,chunkMask)
-trackerSock.send(ourClientInfo.encode())
+    #Create a listening socket to receive requests from peers
+    listener = socket(AF_INET, SOCK_STREAM)
+    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    listener.bind(('', int(listeningPort)))
+    listener.listen(4)
 
-#This thread will be for communicating with the tracker
-threading.Thread(target=handleTracker, args=(trackerSock,),daemon=False).start()
-
-#Create a listening socket to receive requests from peers
-listener = socket(AF_INET, SOCK_STREAM)
-listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-listener.bind(('', int(port)))
-listener.listen(4)
-
-#Handle clients as they make requests. Only allow 4 clients to make requests
-#At a time as not to be overloaded
-running = True
-while running:
-    try:
-        threading.Thread(target=handleClient, args=(listener.accept(),),daemon=True).start()
-    except KeyboardInterrupt:
-        running = False
-#clientSock.close()
+    #Handle clients as they make requests. Only allow 4 clients to make requests
+    #At a time as not to be overloaded
+    running = True
+    while running:
+        try:
+            threading.Thread(target=handleClient, args=(listener.accept(),),daemon=True).start()
+        except KeyboardInterrupt:
+            running = False
+    #clientSock.close()
 
