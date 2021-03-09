@@ -42,9 +42,8 @@ def getFullMsg(conn, msgLength):
     while len(msg) < msgLength:
         retVal = conn.recv(msgLength - len(msg))
         msg += retVal
-#        if len(retVal) == 0:
-#            break   
-#FIXME##########################################################3
+        if len(retVal) == 0:
+            break   
     return msg
 
 def getLine(conn):

@@ -12,7 +12,7 @@ def printClients(clientList):
         clientInfo = clientList[ip].split(",")
         port = clientInfo[0]
         mask = clientInfo[1]
-        print("IP:{}   Port:{}   Mask:{}".format(ip, port, mask))
+        print("{}:{} - {}".format(ip, port, mask))
         print("------------------------------------------------------")
 
 def printCommands():
@@ -23,8 +23,8 @@ def printCommands():
     print("   [4] Disconnect")
 
 
-def addToChunkMask(mask, i):
-    maskList = list(mask)
+def addToChunkMask(i):
+    maskList = list(chunkMask)
     if maskList[i] == "0":
         maskList[i] = "1"
     return "".join(maskList)
