@@ -5,6 +5,8 @@ from pathlib import Path
 import threading
 import os
 
+fileData = []
+fileLock = threading.Lock()
 
 def getLine(conn):
     msg = b''
@@ -14,6 +16,15 @@ def getLine(conn):
         if ch == b'\n' or len(ch) == 0:
             break
     return msg.decode()
+
+def getFullMsg(conn, msgLength):
+    msg = b''
+    while len(msg) < msgLength:
+        retVal = conn.recv(msgLength - len(msg))
+        msg += retVal
+        if len(retVal) == 0:
+            break   
+    return msg
 
 def getClientList(trackerSock):
     msg = "CLIENT_LIST\n"
@@ -30,24 +41,25 @@ def getClientList(trackerSock):
         #clientList.update({clientIP: clientPortMask}) 
         clientList.update({clientIPPort: clientMask}) 
     return clientList
-
+'''
 def getSudoClientList():
     sudoList = {
         "10.12.32.45":"12345,00010001011100001",
         "12.43.86.12":"96592,01001101101010010",
         "11.11.11.01":"37584,01101100100001111",
-        "10.32.07.19":"19593,11111010110100000",
+        "10.32.07.19":"19593,00000000000100000",
         "17.17.19.14":"99999,11110101001101111",
         "16.11.60.34":"64646,11101101010101111"}
     return sudoList
+'''
 
-
-def getSudoClientList2():
+def getSudoClientList():
     sudoList = {
+        "10.172.0.249:34344":"11111111111111111",
         "10.12.32.45:12345":"00010001011100001",
         "12.43.86.12:96592":"01001101101010010",
         "11.11.11.01:37584":"01101100100001111",
-        "10.32.07.19:19593":"11111010110100000",
+        "10.32.07.19:19593":"11111000110100000",
         "17.17.19.14:99999":"11110101001101111",
         "16.11.60.34:64646":"11011001010101111"}
     return sudoList
@@ -127,30 +139,55 @@ def getTargetClient(clientList, chunkNum):
         if v[chunkNum] == "1":
             return k
 
+def getChunk(ip, port, chunkNum, fileSize, chunkSize, numChunks):
+    clientSock = socket(AF_INET, SOCK_STREAM)
+    clientSock.connect( (ip, port) )
+
+    msg = str(chunkNum) + "\n"
+    msg = msg.encode()
+    clientSock.send(msg)
+    if chunkNum < numChunks - 1:
+        chunk = getFullMsg(clientSock, chunkSize)
+    else:
+        chunk = getFullMsg(clientSock, fileSize % chunkSize)
+
+    fileLock.acquire()
+    fileData[chunkNum] += chunk
+    fileLock.release()
+'''
 def requestChunk(peerInfo, chunkNum):
     peerIP = peerInfo[0]
     peerPort = int(peerInfo[1])
     
     peerSock = socket(AF_INET, SOCK_STREAM)
     peerSock.connect( (peerIP, peerPort) )
-
+'''
 def disconnect(trackerSock):
     msg = "DISCONNECT!\n"
     trackerSock.send(msg.encode())
     os._exit(1)
 
 def handleTracker(trackerSock, listeningPort): 
-    # Receive intitial file and chunk info
+    #Receive intitial file and chunk info
     fileName = getLine(trackerSock).rstrip()
     chunkSize = int(getLine(trackerSock).rstrip()) 
     numChunks = int(getLine(trackerSock).rstrip())
+    
+    #Initialize the chunk data as empty
+    fileLock.acquire()
+    for i in range(0, numChunks):
+        fileData.append(b'')
+    fileLock.release()
+    
+    fileSize = 0
     chunks = []
     for i in range(numChunks):
         chunk = getLine(trackerSock).split(",")
         sz = int(chunk[0].rstrip())
+        fileSize += sz
         digest = chunk[1].rstrip()
         chunks.append((sz, digest))
-
+    
     #Send our information to the tracker server
     chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
     ourClientInfo = "{},{}\n".format(listeningPort,chunkMask)
@@ -176,15 +213,18 @@ def handleTracker(trackerSock, listeningPort):
             for i in range(chunksToGet):
                 #update peer list
                 #clientList = getClientList(trackerSock)
-                clientList = getSudoClientList2()
+                clientList = getSudoClientList()
                 peerMasks = getMasks(clientList)
-                toGet = getScarceChunk(peerMasks, chunkMask)
-                targetClient = getTargetClient(clientList, toGet)
+                chunkToGet = getScarceChunk(peerMasks, chunkMask)
+                targetIPPort = getTargetClient(clientList, chunkToGet).split(':')
                 #get info for peer who has least common chunk
-                print(toGet)
-                print(targetClient)
+                print(chunkToGet)
+                print(targetIPPort)
                 #request chunk
                 #requestChunk(peerInfo, chunkNum)
+                print(fileData)
+                getChunk(targetIPPort[0],int(targetIPPort[1]),chunkToGet,fileSize,chunkSize, numChunks)
+                print(fileData)
         #Disconnect from swarm
         elif command == "4":
             disconnect(trackerSock)
@@ -202,7 +242,6 @@ def handleTracker(trackerSock, listeningPort):
 def handleClient(connInfo):
     peerConn, peerAddr = connInfo
     peerIP = peerAddr[0]
-    print("Recieved connection from {} {}".format(peerIP, peerAddr[1]))
 
 if __name__ == "__main__":
     # Set server/port from command line
