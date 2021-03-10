@@ -155,6 +155,11 @@ def handleTracker(trackerSock, listeningPort):
 
     connected = True
     while connected == True:
+        if (chunkMask == "1"*numChunks):
+            if not os.path.isfile(fileName):
+                with open(fileName, "wb") as f:
+                    for chunk in fileData:
+                        f.write(chunk)
         printCommands()
         command = input("> ")
         #Upadate tracker with mask
@@ -169,7 +174,7 @@ def handleTracker(trackerSock, listeningPort):
             printClients(clientList)
         #Request and receive a chunk if it exists in swarm
         elif command == "3":
-            chunksToGet = int(input("How many chunks would you like to get?"))
+            chunksToGet = int(input("How many chunks would you like to get?(1-{}) ".format(numChunks)))
             for i in range(chunksToGet):
                 #update peer list
                 #clientList = getClientList(trackerSock)
@@ -215,7 +220,7 @@ def handleClient(connInfo):
         clientConn.close()
         fileLock.release()
         return
-    data = filedata[chunk]
+    data = fileData[chunk]
     fileLock.release()
     clientConn.send(data)
     clientConn.close()
