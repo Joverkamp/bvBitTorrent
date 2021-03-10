@@ -5,28 +5,6 @@ from pathlib import Path
 import threading
 import os
 
-def printClients(clientList):
-    print()
-    print("Client List")   
-    for i, ip in enumerate(clientList, start=1):
-        clientInfo = clientList[ip].split(",")
-        port = clientInfo[0]
-        mask = clientInfo[1]
-        print("{}:{} - {}".format(ip, port, mask))
-        print("------------------------------------------------------")
-
-def printCommands():
-    print("Commands")
-    print("   [1] Update Mask")
-    print("   [2] Get Client List")
-    print("   [3] Request Chunk")
-    print("   [4] Disconnect")
-
-def addToChunkMask(chunkMask,i):
-    maskList = list(chunkMask)
-    if maskList[i] == "0":
-        maskList[i] = "1"
-    return "".join(maskList)
 
 def getLine(conn):
     msg = b''
@@ -49,18 +27,35 @@ def getClientList(trackerSock):
         clientList.update({clientIP: clientPortMask})
     return clientList
 
-def disconnect(trackerSock):
-    msg = "DISCONNECT!\n"
-    trackerSock.send(msg.encode())
-    os._exit(1)
+def printClients(clientList):
+    print()
+    print("Client List")   
+    for i, ip in enumerate(clientList, start=1):
+        clientInfo = clientList[ip].split(",")
+        port = clientInfo[0]
+        mask = clientInfo[1]
+        print("{}:{} - {}".format(ip, port, mask))
+        print("------------------------------------------------------")
 
+def printCommands():
+    print("Commands")
+    print("   [1] Update Mask")
+    print("   [2] Get Client List")
+    print("   [3] Request Chunks")
+    print("   [4] Disconnect")
 
-def findChunk(clientList, chunkNum):
+def addToChunkMask(chunkMask,i):
+    maskList = list(chunkMask)
+    if maskList[i] == "0":
+        maskList[i] = "1"
+    return "".join(maskList)
+
+def getMasks(clientList):
+    masks = []
     for client in clientList:
-        port,mask = clientList[client].split(",")
-        if mask[chunkNum] == "1":
-            return (client, port)
-    return False
+        port,ip = clientList[client].split(',')
+        masks.append(mask)
+    return masks
 
 def requestChunk(peerInfo, chunkNum):
     peerIP = peerInfo[0]
@@ -68,6 +63,11 @@ def requestChunk(peerInfo, chunkNum):
     
     peerSock = socket(AF_INET, SOCK_STREAM)
     peerSock.connect( (peerIP, peerPort) )
+
+def disconnect(trackerSock):
+    msg = "DISCONNECT!\n"
+    trackerSock.send(msg.encode())
+    os._exit(1)
 
 def handleTracker(trackerSock, listeningPort): 
     # Receive intitial file and chunk info
@@ -102,13 +102,16 @@ def handleTracker(trackerSock, listeningPort):
             printClients(clientList)
         #Request and receive a chunk if it exists in swarm
         elif command == "3":
-            chunkNum = int(input("Which chunk would you like to get?"))
-            clientList = getClientList(trackerSock)
-            peerInfo = findChunk(clientList, chunkNum)
-            if peerInfo == False:
-                print("Chunk does not exist in swarm. You're screwed")
-            else:
-                requestChunk(peerInfo, chunkNum)
+            chunksToGet = int(input("How many chunks would you like to get?"))
+            for i in range(chunksToGet)
+                #update peer list
+                clientList = getClientList(trackerSock)
+                masks = getMasks(clientList)
+                print(masks)
+                #get info for peer who has least common chunk
+                
+                #request chunk
+                #requestChunk(peerInfo, chunkNum)
         #Disconnect from swarm
         elif command == "4":
             disconnect(trackerSock)
