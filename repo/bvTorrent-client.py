@@ -186,7 +186,6 @@ def handleTracker(trackerSock, listeningPort):
                     print("Got chunk {} successfully.".format(chunkToGet))
                 except:
                     print("Could not download chunk {}.".format(chunkToGet))
-                print(fileData)
         #Disconnect from swarm
         elif command == "4":
             disconnect(trackerSock)
