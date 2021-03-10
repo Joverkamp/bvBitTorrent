@@ -1,33 +1,97 @@
-# [NameServer] Client
 from socket import *
-from sys import argv
-from pathlib import Path
 import threading
-import os
-
-def printClients(clientList):
-    print()
-    print("Client List")   
-    for i, ip in enumerate(clientList, start=1):
-        clientInfo = clientList[ip].split(",")
-        port = clientInfo[0]
-        mask = clientInfo[1]
-        print("IP:{}   Port:{}   Mask:{}".format(ip, port, mask))
-        print("------------------------------------------------------")
-
-def printCommands():
-    print("Commands")
-    print("   [1] Update Mask")
-    print("   [2] Get Client List")
-    print("   [3] Request Chunk")
-    print("   [4] Disconnect")
+import hashlib
+import sys
+import time
+import math
+import random
 
 
-def addToChunkMask(mask, i):
-    maskList = list(mask)
-    if maskList[i] == "0":
-        maskList[i] = "1"
-    return "".join(maskList)
+port = 10000
+
+
+filename = "culture.txt"
+fileSize = 2242226
+chunkSize = 2**17
+numChunks = math.ceil(fileSize/chunkSize)
+
+# Reading the file into memory. Which I hate, but it's the most effecicient
+# option possible with python
+filedata = []
+for i in range(0, numChunks):
+    filedata.append(b'')
+fileLock = threading.Lock()
+
+
+sock = socket(AF_INET, SOCK_STREAM)
+sock.bind( ('', port) )
+# The listener thread will read this while the client thread that's downloading
+# the file for us will write to it.
+running = True
+
+clientList = [
+    "10.159.16.2:34344,111000111000111000",
+    "10.159.16.2:34344,000111000111000111",
+    "10.159.16.2:34344,101001010101010100",
+    "10.159.16.2:34344,101011110101011101",
+]
+
+# This is just a placeholder for the client-server code, so this is fine
+clients = [
+    ["10.172.0.249", 34344, "111000111000111000"],
+    ["10.172.0.249", 34345, "000111000111000111"],
+    ["10.172.0.249", 34346, "101001010101010100"],
+    ["10.172.0.249", 34347, "101011110101011101"],
+]
+
+
+def topScarceBlocks(masks, ourMask, nBlocks):
+    chunkOwners = {}
+    for i in range(0, len(ourMask)):
+        chunkOwners[i] = 0
+
+    for mask in masks:
+        for i in range(0, len(mask)):
+            chunkOwners[i] += int(mask[i])
+
+    targetBlocks = []
+    minVals = []
+    for block, numOwners in chunkOwners.items():
+        if ourMask[block] == '1':
+            pass
+        elif len(targetBlocks) < nBlocks:
+            targetBlocks.append(block)
+            minVals.append(numOwners)
+        elif numOwners < max(minVals):
+            del targetBlocks[minVals.index(max(minVals))]
+            targetBlocks.append(block)
+            minVals.remove(max(minVals))
+            minVals.append(numOwners)
+
+    return targetBlocks
+
+
+# Doing a little extra work to choose a random client to download from
+def getTargetClient(masks, chunkNum):
+    clientsWithChunk = []
+    for i in range(0, len(masks)):
+        if masks[i][chunkNum] == "1":
+            clientsWithChunk.append(i)
+
+    # If len(clientsWithChunks) is 0, the torrent is broken, so I'm ignoring
+    # that possible error for now and returning the index of a random client
+    return clientsWithChunk[random.randint(0, len(clientsWithChunk)-1)]
+
+
+def getFullMsg(conn, msgLength):
+    msg = b''
+    while len(msg) < msgLength:
+        retVal = conn.recv(msgLength - len(msg))
+        msg += retVal
+        if len(retVal) == 0:
+            break
+    return msg
+
 
 def getLine(conn):
     msg = b''
@@ -38,126 +102,118 @@ def getLine(conn):
             break
     return msg.decode()
 
-def getClientList(trackerSock):
-    msg = "CLIENT_LIST\n"
-    trackerSock.send(msg.encode())
-    numClients = int(getLine(trackerSock).rstrip())
-    clientList = {}
-    for i in range(numClients):
-        rawClient = getLine(trackerSock).rstrip().split(":")
-        clientIP = rawClient[0]
-        clientPortMask = rawClient[1]
-        clientList.update({clientIP: clientPortMask})
-    return clientList
 
-def disconnect(trackerSock):
-    msg = "DISCONNECT!\n"
-    trackerSock.send(msg.encode())
-    os._exit(1)
+def handleConn(connInfo):
+    clientConn, clientInfo = connInfo
 
-
-def findChunk(clientList, chunkNum):
-    for client in clientList:
-        port,mask = clientList[client].split(",")
-        if mask[chunkNum] == "1":
-            return (client, port)
-    return False
-
-def requestChunk(peerInfo, chunkNum):
-    peerIP = peerInfo[0]
-    peerPort = int(peerInfo[1])
-    
-    peerSock = socket(AF_INET, SOCK_STREAM)
-    peerSock.connect( (peerIP, peerPort) )
-
-def handleTracker(trackerSock):
-    connected = True
-    while connected == True:
-        printCommands()
-        command = input("> ")
-        #Upadate tracker with mask
-        if command == "1":
-            msg = "UPDATE_MASK\n"
-            trackerSock.send(msg.encode())
-            msg = "{}\n".format(chunkMask) 
-            trackerSock.send(msg.encode())
-        #Get and view clients connected to tracker
-        elif command == "2":
-            clientList = getClientList(trackerSock)
-            printClients(clientList)
-        #Request and receive a chunk if it exists in swarm
-        elif command == "3":
-            chunkNum = int(input("Which chunk would you like to get?"))
-            clientList = getClientList(trackerSock)
-            peerInfo = findChunk(clientList, chunkNum)
-            if peerInfo == False:
-                print("Chunk does not exist in swarm. You're screwed")
-            else:
-                requestChunk(peerInfo, chunkNum)
-        #Disconnect from swarm
-        elif command == "4":
-            disconnect(trackerSock)
-            connected = False
-        #Must print valid command
-        else:
-            print("Invalid Command")
-        print()
-
-
-#A peer has made a request for one of your chunks we can assume that we
-#We should have the chunk available to send to the peer as they have 
-#Already checked our chunk mask. However if somethin went wrong we should
-#Send a negative acknowledgement
-def handleClient(connInfo):
-    peerConn, peerAddr = connInfo
-    peerIP = peerAddr[0]
-    print("Recieved connection from {} {}".format(peerIP, peerAddr[1]))
-
-# Set server/port from command line
-progname = argv[0]
-if len(argv) != 3:
-    print("Usage: python3 {} <IPaddress> <port>".format(progname))
-    exit(1)
-serverIP = argv[1]
-serverPort = int(argv[2])
-
-# Establish connection to tracker
-trackerSock = socket(AF_INET, SOCK_STREAM)
-trackerSock.connect( (serverIP, serverPort) )
-
-# Receive intitial file and chunk info
-fileName = getLine(trackerSock).rstrip()
-chunkSize = int(getLine(trackerSock).rstrip()) 
-numChunks = int(getLine(trackerSock).rstrip())
-chunks = []
-for i in range(numChunks):
-    chunk = getLine(trackerSock).split(",")
-    sz = int(chunk[0].rstrip())
-    digest = chunk[1].rstrip()
-    chunks.append((sz, digest))
-
-#Send our information to the tracker server
-port = "27120"
-chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
-ourClientInfo = "{},{}\n".format(port,chunkMask)
-trackerSock.send(ourClientInfo.encode())
-
-#This thread will be for communicating with the tracker
-threading.Thread(target=handleTracker, args=(trackerSock,),daemon=False).start()
-
-#Create a listening socket to receive requests from peers
-listener = socket(AF_INET, SOCK_STREAM)
-listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-listener.bind(('', int(port)))
-listener.listen(4)
-
-#Handle clients as they make requests. Only allow 4 clients to make requests
-#At a time as not to be overloaded
-running = True
-while running:
+    chunkStr = getLine(clientConn)[:-1]
     try:
-        threading.Thread(target=handleClient, args=(listener.accept(),),daemon=True).start()
-    except KeyboardInterrupt:
-        running = False
-#clientSock.close()
+        chunk = int(chunkStr)
+    except ValueError:
+        clientConn.close()
+        return
 
+    fileLock.acquire()
+    if filedata[chunk] == b'':
+        clientConn.close()
+        fileLock.release()
+        return
+    data = filedata[chunk]
+    fileLock.release()
+    clientConn.send(data)
+    clientConn.close()
+
+
+def getChunk(ip, port, chunkNum):
+    clientSock = socket(AF_INET, SOCK_STREAM)
+    clientSock.connect( (ip, port) )
+
+    msg = str(chunkNum) + "\n"
+    msg = msg.encode()
+    clientSock.send(msg)
+    if chunkNum < numChunks - 1:
+        chunk = getFullMsg(clientSock, chunkSize)
+    else:
+        chunk = getFullMsg(clientSock, fileSize % chunkSize)
+
+    fileLock.acquire()
+    filedata[chunkNum] += chunk
+    fileLock.release()
+    print("Got chunk {}".format(chunkNum))
+
+
+def listen():
+    sock.listen(4) #FIXME: Decide what the right number is
+    while running:
+        connInfo = sock.accept()
+        threading.Thread(target=handleConn, args=(connInfo, ), daemon=True).start()
+
+
+def getServerStuff():
+    return clients
+
+
+def download():
+    ourMask = "0"*numChunks
+    chunksGathered = 0
+
+    while chunksGathered < numChunks:
+        # Leaving a space to insert server stuff here
+        clients = getServerStuff()
+        # Getting a mask list from clients
+        masks = []
+        for client in clients:
+            masks.append(client[2])
+        # Determining whether we're on the last fetch of blocks
+        chunksLeft = numChunks - chunksGathered
+        # Getting 4 chunks at a time by default
+        chunksToGet = min(4, chunksLeft)
+        print("Chunks to get: {}".format(chunksToGet))
+        # Determining what chunks we need
+        targetChunks = topScarceBlocks(masks, ourMask, chunksToGet)
+        print("Le chunks:" + str(targetChunks))
+        # And finding indexes of clients that have those blocks
+        targetClients = []
+        for i in range(0, chunksToGet):
+            targetClients.append(getTargetClient(masks, targetChunks[i]))
+
+        print("Le clients: " + str(targetClients))
+        threads = []
+        for i in range(0, chunksToGet):
+            print("i: " + str(i))
+            threads.append(
+                threading.Thread(
+                    target=getChunk, args=(
+                        clients[targetClients[i]][0],
+                        clients[targetClients[i]][1],
+                        targetChunks[i]
+                    ),
+                    daemon=True
+                )
+            )
+
+            threads[i].start()
+            print("Getting block {} from port {}".format(targetChunks[i],\
+                                            clients[targetClients[i]][1]))
+
+        for i in range(0, len(threads)):
+            threads[i].join()
+            index = targetChunks[i]
+            print(type(index))
+            print(index)
+            ourMask = ourMask[:index] + "1" + ourMask[index+1:]
+        chunksGathered += chunksToGet
+        # TODO: Update our mask and do server stuff here?
+        
+    with open(filename, "wb") as f:
+        for chunk in filedata:
+            f.write(chunk)
+
+
+clientThread = threading.Thread(target=download, args=(), daemon=True)
+clientThread.start()
+serverThread = threading.Thread(target=listen, args=(), daemon=True)
+serverThread.start()
+
+clientThread.join()
+serverThread.join()
