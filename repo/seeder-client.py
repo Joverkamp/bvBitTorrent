@@ -7,21 +7,14 @@ import math
 import random
 
 
-port = 10000
+port = 34344
 
 
 filename = "culture.txt"
+fileLock = threading.Lock()
 fileSize = 2242226
 chunkSize = 2**17
 numChunks = math.ceil(fileSize/chunkSize)
-
-# Reading the file into memory. Which I hate, but it's the most effecicient
-# option possible with python
-filedata = []
-for i in range(0, numChunks):
-    filedata.append(b'')
-fileLock = threading.Lock()
-
 
 sock = socket(AF_INET, SOCK_STREAM)
 sock.bind( ('', port) )
@@ -37,12 +30,12 @@ clientList = [
 ]
 
 # This is just a placeholder for the client-server code, so this is fine
-clients = {
-    "10.172.0.249:34344": "111000111000111000",
-    "10.172.0.249:34345": "000111000111000111",
-    "10.172.0.249:34346": "101001010101010100",
-    "10.172.0.249:34347": "101011110101011101",
-}
+clients = [
+    ["10.172.0.249", 34344, "111000111000111000"],
+    ["10.172.0.249", 34345, "000111000111000111"],
+    ["10.172.0.249", 34346, "101001010101010100"],
+    ["10.172.0.249", 34347, "101011110101011101"],
+]
 
 
 def topScarceBlocks(masks, ourMask, nBlocks):
@@ -72,10 +65,15 @@ def topScarceBlocks(masks, ourMask, nBlocks):
 
 
 # Doing a little extra work to choose a random client to download from
-def getTargetClient(clients, chunkNum):
-    for k,v in clients.items():
-        if v[chunkNum] == "1":
-            return k
+def getTargetClient(masks, chunkNum):
+    clientsWithChunk = []
+    for i in range(0, len(masks)):
+        if masks[i][chunkNum] == "1":
+            clientsWithChunk.append(i)
+
+    # If len(clientsWithChunks) is 0, the torrent is broken, so I'm ignoring
+    # that possible error for now and returning the index of a random client
+    return clientsWithChunk[random.randint(0, len(clientsWithChunk)-1)]
 
 
 def getFullMsg(conn, msgLength):
@@ -99,6 +97,7 @@ def getLine(conn):
 
 
 def handleConn(connInfo):
+    print("Connection received")
     clientConn, clientInfo = connInfo
 
     chunkStr = getLine(clientConn)[:-1]
@@ -108,14 +107,20 @@ def handleConn(connInfo):
         clientConn.close()
         return
 
+    print("Client requested chunk: " + str(chunk))
     fileLock.acquire()
-    if filedata[chunk] == b'':
-        clientConn.close()
-        fileLock.release()
-        return
-    data = filedata[chunk]
+    dataFile = open(filename, "rb+")
+    dataFile.seek(chunk*chunkSize, 0)
+    print("Seeking {} bytes".format(chunk*chunkSize))
+    data = b''
+    if chunk < numChunks-1:
+        data += dataFile.read(chunkSize)
+    else:
+        data += dataFile.read(fileSize % chunkSize)
+    dataFile.close()
     fileLock.release()
     clientConn.send(data)
+    print("Bytes sent: " + str(len(data)))
     clientConn.close()
 
 
@@ -132,7 +137,10 @@ def getChunk(ip, port, chunkNum):
         chunk = getFullMsg(clientSock, fileSize % chunkSize)
 
     fileLock.acquire()
-    filedata[chunkNum] += chunk
+    dataFile = open(filename, "wb+")
+    dataFile.seek(chunkSize * chunkNum)
+    dataFile.write(chunk)
+    dataFile.close()
     fileLock.release()
     print("Got chunk {}".format(chunkNum))
 
@@ -151,36 +159,35 @@ def getServerStuff():
 def download():
     ourMask = "0"*numChunks
     chunksGathered = 0
-
     while chunksGathered < numChunks:
         # Leaving a space to insert server stuff here
         clients = getServerStuff()
+        # Getting a mask list from clients
+        masks = []
+        for client in clients:
+            masks.append(client[2])
         # Determining whether we're on the last fetch of blocks
         chunksLeft = numChunks - chunksGathered
         # Getting 4 chunks at a time by default
         chunksToGet = min(4, chunksLeft)
         print("Chunks to get: {}".format(chunksToGet))
         # Determining what chunks we need
-        masks = []
-        for k, v in clients.items():
-            masks.append(v)
         targetChunks = topScarceBlocks(masks, ourMask, chunksToGet)
         print("Le chunks:" + str(targetChunks))
         # And finding indexes of clients that have those blocks
         targetClients = []
         for i in range(0, chunksToGet):
-            targetClients.append(getTargetClient(clients, targetChunks[i]))
+            targetClients.append(getTargetClient(masks, targetChunks[i]))
 
         print("Le clients: " + str(targetClients))
         threads = []
         for i in range(0, chunksToGet):
             print("i: " + str(i))
-            currClient = targetClients[i].split(":")
             threads.append(
                 threading.Thread(
                     target=getChunk, args=(
-                        currClient[0],
-                        int(currClient[1]),
+                        clients[targetClients[i]][0],
+                        clients[targetClients[i]][1],
                         targetChunks[i]
                     ),
                     daemon=True
@@ -200,15 +207,12 @@ def download():
         chunksGathered += chunksToGet
         # TODO: Update our mask and do server stuff here?
         
-    with open(filename, "wb") as f:
-        for chunk in filedata:
-            f.write(chunk)
 
 
-clientThread = threading.Thread(target=download, args=(), daemon=True)
-clientThread.start()
+#clientThread = threading.Thread(target=download, args=(), daemon=True)
+#clientThread.start()
 serverThread = threading.Thread(target=listen, args=(), daemon=True)
 serverThread.start()
 
-clientThread.join()
+#clientThread.join()
 serverThread.join()
