@@ -178,14 +178,12 @@ def handleTracker(trackerSock, listeningPort):
                 chunkToGet = getScarceChunk(peerMasks, chunkMask)
                 targetIPPort = getTargetClient(clientList, chunkToGet).split(':')
                 #get info for peer who has least common chunk
-                print(chunkToGet)
-                print(targetIPPort)
                 #request chunk
                 #requestChunk(peerInfo, chunkNum)
-                print(fileData)
                 try:
                     getChunk(targetIPPort[0],int(targetIPPort[1]),chunkToGet,fileSize,chunkSize, numChunks)
                     chunkMask = addToChunkMask(chunkMask, chunkToGet)
+                    print("Got chunk {} successfully.".format(chunkToGet))
                 except:
                     print("Could not download chunk {}.".format(chunkToGet))
                 print(fileData)
