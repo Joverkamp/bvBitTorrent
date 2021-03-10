@@ -21,11 +21,36 @@ def getClientList(trackerSock):
     numClients = int(getLine(trackerSock).rstrip())
     clientList = {}
     for i in range(numClients):
-        rawClient = getLine(trackerSock).rstrip().split(":")
-        clientIP = rawClient[0]
-        clientPortMask = rawClient[1]
-        clientList.update({clientIP: clientPortMask})
+        #rawClient = getLine(trackerSock).rstrip().split(":")
+        rawClient = getLine(trackerSock).rstrip().split(",")
+        #clientIP = rawClient[0]
+        #clientPortMask = rawClient[1]
+        clientIPPort = rawClient[0]
+        clientMask = rawClient[1]
+        #clientList.update({clientIP: clientPortMask}) 
+        clientList.update({clientIPPort: clientMask}) 
     return clientList
+
+def getSudoClientList():
+    sudoList = {
+        "10.12.32.45":"12345,00010001011100001",
+        "12.43.86.12":"96592,01001101101010010",
+        "11.11.11.01":"37584,01101100100001111",
+        "10.32.07.19":"19593,11111010110100000",
+        "17.17.19.14":"99999,11110101001101111",
+        "16.11.60.34":"64646,11101101010101111"}
+    return sudoList
+
+
+def getSudoClientList2():
+    sudoList = {
+        "10.12.32.45:12345":"00010001011100001",
+        "12.43.86.12:96592":"01001101101010010",
+        "11.11.11.01:37584":"01101100100001111",
+        "10.32.07.19:19593":"11111010110100000",
+        "17.17.19.14:99999":"11110101001101111",
+        "16.11.60.34:64646":"11011001010101111"}
+    return sudoList
 
 def printClients(clientList):
     print()
@@ -49,13 +74,58 @@ def addToChunkMask(chunkMask,i):
     if maskList[i] == "0":
         maskList[i] = "1"
     return "".join(maskList)
-
+'''
 def getMasks(clientList):
     masks = []
     for client in clientList:
-        port,ip = clientList[client].split(',')
+        port,mask = clientList[client].split(',')
         masks.append(mask)
     return masks
+'''
+def getMasks(clientList):
+    masks = []
+    for client, mask in clientList.items():
+        masks.append(mask)
+    return masks
+
+def getScarceChunk(masks, ourMask):
+    chunkOwners = {}
+    for i in range(0, len(ourMask)):
+        chunkOwners[i] = 0
+
+    for mask in masks:
+        for i in range(0, len(mask)):
+            chunkOwners[i] += int(mask[i])
+    targetBlock = -1
+    minVal = 0
+    for block, numOwners in chunkOwners.items():
+        if ourMask[block] == '1':
+            pass
+        elif targetBlock == -1:
+            targetBlock = block
+            minVals = numOwners
+        elif numOwners < minVals:
+            targetBlock = block
+            minVals = numOwners
+
+    return targetBlock
+'''
+def getTargetClient(clientList, chunkNum):
+    clients = {}
+    for client in clientList:
+        ip = clients
+        port = clientList[client][0]
+        mask = clientList[client][1]
+        ipPort = "{}:{}".format(ip,port)
+        clients.update({ipPort: mask}) 
+    for k,v in clientList.items():
+        if v[chunkNum] == "1":
+            return k
+'''
+def getTargetClient(clientList, chunkNum):
+    for k,v in clientList.items():
+        if v[chunkNum] == "1":
+            return k
 
 def requestChunk(peerInfo, chunkNum):
     peerIP = peerInfo[0]
@@ -103,13 +173,16 @@ def handleTracker(trackerSock, listeningPort):
         #Request and receive a chunk if it exists in swarm
         elif command == "3":
             chunksToGet = int(input("How many chunks would you like to get?"))
-            for i in range(chunksToGet)
+            for i in range(chunksToGet):
                 #update peer list
-                clientList = getClientList(trackerSock)
-                masks = getMasks(clientList)
-                print(masks)
+                #clientList = getClientList(trackerSock)
+                clientList = getSudoClientList2()
+                peerMasks = getMasks(clientList)
+                toGet = getScarceChunk(peerMasks, chunkMask)
+                targetClient = getTargetClient(clientList, toGet)
                 #get info for peer who has least common chunk
-                
+                print(toGet)
+                print(targetClient)
                 #request chunk
                 #requestChunk(peerInfo, chunkNum)
         #Disconnect from swarm
