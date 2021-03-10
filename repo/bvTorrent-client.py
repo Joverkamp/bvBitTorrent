@@ -32,26 +32,11 @@ def getClientList(trackerSock):
     numClients = int(getLine(trackerSock).rstrip())
     clientList = {}
     for i in range(numClients):
-        #rawClient = getLine(trackerSock).rstrip().split(":")
         rawClient = getLine(trackerSock).rstrip().split(",")
-        #clientIP = rawClient[0]
-        #clientPortMask = rawClient[1]
         clientIPPort = rawClient[0]
         clientMask = rawClient[1]
-        #clientList.update({clientIP: clientPortMask}) 
         clientList.update({clientIPPort: clientMask}) 
     return clientList
-'''
-def getSudoClientList():
-    sudoList = {
-        "10.12.32.45":"12345,00010001011100001",
-        "12.43.86.12":"96592,01001101101010010",
-        "11.11.11.01":"37584,01101100100001111",
-        "10.32.07.19":"19593,00000000000100000",
-        "17.17.19.14":"99999,11110101001101111",
-        "16.11.60.34":"64646,11101101010101111"}
-    return sudoList
-'''
 
 def getSudoClientList():
     sudoList = {
@@ -67,10 +52,11 @@ def getSudoClientList():
 def printClients(clientList):
     print()
     print("Client List")   
-    for i, ip in enumerate(clientList, start=1):
-        clientInfo = clientList[ip].split(",")
-        port = clientInfo[0]
-        mask = clientInfo[1]
+    for client in clientList:
+        mask = clientList[client]
+        ipPort = client.split(":")
+        ip = ipPort[0]
+        port = ipPort[1]
         print("{}:{} - {}".format(ip, port, mask))
         print("------------------------------------------------------")
 
@@ -86,14 +72,7 @@ def addToChunkMask(chunkMask,i):
     if maskList[i] == "0":
         maskList[i] = "1"
     return "".join(maskList)
-'''
-def getMasks(clientList):
-    masks = []
-    for client in clientList:
-        port,mask = clientList[client].split(',')
-        masks.append(mask)
-    return masks
-'''
+
 def getMasks(clientList):
     masks = []
     for client, mask in clientList.items():
@@ -121,19 +100,7 @@ def getScarceChunk(masks, ourMask):
             minVals = numOwners
 
     return targetBlock
-'''
-def getTargetClient(clientList, chunkNum):
-    clients = {}
-    for client in clientList:
-        ip = clients
-        port = clientList[client][0]
-        mask = clientList[client][1]
-        ipPort = "{}:{}".format(ip,port)
-        clients.update({ipPort: mask}) 
-    for k,v in clientList.items():
-        if v[chunkNum] == "1":
-            return k
-'''
+
 def getTargetClient(clientList, chunkNum):
     for k,v in clientList.items():
         if v[chunkNum] == "1":
@@ -154,14 +121,7 @@ def getChunk(ip, port, chunkNum, fileSize, chunkSize, numChunks):
     fileLock.acquire()
     fileData[chunkNum] += chunk
     fileLock.release()
-'''
-def requestChunk(peerInfo, chunkNum):
-    peerIP = peerInfo[0]
-    peerPort = int(peerInfo[1])
-    
-    peerSock = socket(AF_INET, SOCK_STREAM)
-    peerSock.connect( (peerIP, peerPort) )
-'''
+
 def disconnect(trackerSock):
     msg = "DISCONNECT!\n"
     trackerSock.send(msg.encode())
@@ -223,7 +183,11 @@ def handleTracker(trackerSock, listeningPort):
                 #request chunk
                 #requestChunk(peerInfo, chunkNum)
                 print(fileData)
-                getChunk(targetIPPort[0],int(targetIPPort[1]),chunkToGet,fileSize,chunkSize, numChunks)
+                try:
+                    getChunk(targetIPPort[0],int(targetIPPort[1]),chunkToGet,fileSize,chunkSize, numChunks)
+                    chunkMask = addToChunkMask(chunkMask, chunkToGet)
+                except:
+                    print("Could not download chunk {}.".format(chunkToGet))
                 print(fileData)
         #Disconnect from swarm
         elif command == "4":
@@ -240,8 +204,25 @@ def handleTracker(trackerSock, listeningPort):
 #Already checked our chunk mask. However if somethin went wrong we should
 #Send a negative acknowledgement
 def handleClient(connInfo):
-    peerConn, peerAddr = connInfo
-    peerIP = peerAddr[0]
+    clientConn, clientInfo = connInfo
+
+    chunkStr = getLine(clientConn)[:-1]
+    try:
+        chunk = int(chunkStr)
+    except ValueError:
+        clientConn.close()
+        return
+
+    fileLock.acquire()
+    if fileData[chunk] == b'':
+        clientConn.close()
+        fileLock.release()
+        return
+    data = filedata[chunk]
+    fileLock.release()
+    clientConn.send(data)
+    clientConn.close()
+
 
 if __name__ == "__main__":
     # Set server/port from command line
