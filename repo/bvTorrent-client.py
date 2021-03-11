@@ -86,7 +86,7 @@ def getMasks(clientList):
         masks.append(mask)
     return masks
 
-def getScarceChunk(masks, ourMask):
+def getScarceChunk(masks, ourMask, numBlocks):
     chunkOwners = {}
     for i in range(0, len(ourMask)):
         chunkOwners[i] = 0
@@ -94,19 +94,22 @@ def getScarceChunk(masks, ourMask):
     for mask in masks:
         for i in range(0, len(mask)):
             chunkOwners[i] += int(mask[i])
-    targetBlock = -1
-    minVal = 0
+
+    targetBlocks = []
+    minVals = []
     for block, numOwners in chunkOwners.items():
         if ourMask[block] == '1':
             pass
-        elif targetBlock == -1:
-            targetBlock = block
-            minVals = numOwners
-        elif numOwners < minVals:
-            targetBlock = block
-            minVals = numOwners
+        elif len(targetBlocks) < numBlocks:
+            targetBlocks.append(block)
+            minVals.append(numOwners)
+        elif numOwners < max(minVals):
+            del targetBlocks[minVals.index(max(minVals))]
+            targetBlocks.append(block)
+            minVals.remove(max(minVals))
+            minVals.append(numOwners)
 
-    return targetBlock
+    return targetBlocks
 
 def getTargetClient(clientList, chunkNum):
     for k,v in clientList.items():
@@ -184,18 +187,30 @@ def handleTracker(trackerSock, listeningPort):
             clientList = getSudoClientList()
             #get info for peer who has least common chunk
             peerMasks = getMasks(clientList)
-            chunkToGet = getScarceChunk(peerMasks, chunkMask)
-            targetIPPort = getTargetClient(clientList, chunkToGet).split(':')
-            targetIP = targetIPPort[0]
-            targetPort = int(targetIPPort[1])
-            #request chunk
-#            try:
-            getChunk(targetIP,targetPort,chunkToGet,fileSize,chunks[chunkToGet],numChunks)
-            updateMask(trackerSock, chunkMask)
-            chunkMask = addToChunkMask(chunkMask, chunkToGet)
-            numPossessed += 1
-#            except:
-#                pass
+            numChunksToGet = min(4, numChunks-numPossessed)
+            chunksToGet = getScarceChunk(peerMasks, chunkMask, numChunksToGet)
+            threads = []
+            for i in range(0, numChunksToGet):
+                targetIPPort = getTargetClient(clientList, chunksToGet[i]).split(':')
+                targetIP = targetIPPort[0]
+                targetPort = int(targetIPPort[1])
+                #request chunk
+                threads.append(
+                    threading.Thread(
+                        target=getChunk, args=(
+                            targetIP,targetPort,chunksToGet[i],
+                            fileSize,chunks[chunksToGet[i]],numChunks
+                        ),
+                        daemon=True
+                    )
+                )
+                threads[i].start()
+
+            for i in range(len(threads)):
+                threads[i].join()
+                updateMask(trackerSock, chunkMask)
+                chunkMask = addToChunkMask(chunkMask, chunksToGet[i])
+                numPossessed += 1
 
         except KeyboardInterrupt:
             running = False
