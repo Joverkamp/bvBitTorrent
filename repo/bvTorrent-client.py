@@ -8,6 +8,8 @@ import hashlib
 
 fileData = []
 fileLock = threading.Lock()
+running = True
+runLock = threading.Lock()
 
 def getLine(conn):
     msg = b''
@@ -45,35 +47,6 @@ def getClientList(trackerSock):
         clientList.update({clientIPPort: clientMask}) 
     return clientList
 
-def getSudoClientList():
-    sudoList = {
-        "10.172.0.249:34344":"11111111111111111",
-        "10.12.32.45:12345":"00010001011100001",
-        "12.43.86.12:96592":"01001101101010010",
-        "11.11.11.01:37584":"01101100100001111",
-        "10.32.07.19:19593":"11111000110100000",
-        "17.17.19.14:99999":"11110101001101111",
-        "16.11.60.34:64646":"11011001010101111"}
-    return sudoList
-
-def printClients(clientList):
-    print()
-    print("Client List")   
-    for client in clientList:
-        mask = clientList[client]
-        ipPort = client.split(":")
-        ip = ipPort[0]
-        port = ipPort[1]
-        print("{}:{} - {}".format(ip, port, mask))
-        print("-----------------------------------")
-
-def printCommands():
-    print("Commands")
-    print("   [1] Update Mask")
-    print("   [2] Get Client List")
-    print("   [3] Request Chunks")
-    print("   [4] Disconnect")
-
 def addToChunkMask(chunkMask,i):
     maskList = list(chunkMask)
     if maskList[i] == "0":
@@ -86,7 +59,7 @@ def getMasks(clientList):
         masks.append(mask)
     return masks
 
-def getScarceChunk(masks, ourMask, numBlocks):
+def getScarceChunks(masks, ourMask, numBlocks):
     chunkOwners = {}
     for i in range(0, len(ourMask)):
         chunkOwners[i] = 0
@@ -129,13 +102,10 @@ def getChunk(ip, port, chunkNum, fileSize, sizeDigest, numChunks):
     chunk = getFullMsg(clientSock, chunkSize)
 
     currDigest = hashlib.sha224(chunk).hexdigest()
-    print("Correct digest: [" + str(chunkDigest) + "]")
-    print("Our digest: [" + str(currDigest) + "]")
 
     if currDigest != chunkDigest:
         return
 
-    print("It's actually writing")
     fileLock.acquire()
     fileData[chunkNum] += chunk
     fileLock.release()
@@ -145,7 +115,9 @@ def disconnect(trackerSock):
     trackerSock.send(msg.encode())
     os._exit(1)
 
-def handleTracker(trackerSock, listeningPort): 
+def handleTracker(trackerSock, listeningPort):
+    global running
+
     #Receive intitial file and chunk info
     fileName = getLine(trackerSock).rstrip()
     chunkSize = int(getLine(trackerSock).rstrip()) 
@@ -168,22 +140,20 @@ def handleTracker(trackerSock, listeningPort):
         chunks.append((sz, digest))
     
     #Send our information to the tracker server
-    chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
+    chunkMask = "0" * numChunks
     ourClientInfo = "{},{}\n".format(listeningPort,chunkMask)
     trackerSock.send(ourClientInfo.encode())   
     
     numPossessed = 0
-    #Send command to tracker until connection is closed
-    connected = True
     #Check if all chunks have been received and write file
-    while connected == True:
+    while running:
         try:
             #run threads to fetch chunks
-            clientList = getSudoClientList()
+            clientList = getClientList(trackerSock)
             #get info for peer who has least common chunk
             peerMasks = getMasks(clientList)
             numChunksToGet = min(4, numChunks-numPossessed)
-            chunksToGet = getScarceChunk(peerMasks, chunkMask, numChunksToGet)
+            chunksToGet = getScarceChunks(peerMasks, chunkMask, numChunksToGet)
             threads = []
             for i in range(0, numChunksToGet):
                 targetIPPort = getTargetClient(clientList, chunksToGet[i]).split(':')
@@ -203,17 +173,24 @@ def handleTracker(trackerSock, listeningPort):
 
             for i in range(len(threads)):
                 threads[i].join()
-                chunkMask = addToChunkMask(chunkMask, chunksToGet[i])
-                updateMask(trackerSock, chunkMask)
-                numPossessed += 1
-
+                if fileData[chunksToGet[i]] == b'':
+                    pass
+                else:
+                    chunkMask = addToChunkMask(chunkMask, chunksToGet[i])
+                    updateMask(trackerSock, chunkMask)
+                    numPossessed += 1
+            
             if (chunkMask == "1"*numChunks):
                 with open(fileName, "wb") as f:
                     for chunk in fileData:
                         f.write(chunk)
+                print("{} successfully downloaded!".format(fileName))
+                print("Press ctrl+c to exit torrent...")
                 break
         except KeyboardInterrupt:
+            runLock.acquire()
             running = False
+            runLock.release()
             disconnect(trackerSock)
             
 
@@ -241,6 +218,24 @@ def handleClient(connInfo):
     clientConn.send(data)
     clientConn.close()
 
+def listen():
+    #Create a listening socket to receive requests from peers
+    listener = socket(AF_INET, SOCK_STREAM)
+    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    listener.bind(('', int(listeningPort)))
+    listener.listen(4)
+
+    #Handle clients as they make requests. Only allow 4 clients to make requests
+    #At a time as not to be overloaded
+    while running:
+#        try:
+        threading.Thread(target=handleClient, args=(listener.accept(),),daemon=True).start()
+#        except KeyboardInterrupt:
+#            runLock.acquire()
+#            running = False
+           # runLock.release()
+
+
 
 if __name__ == "__main__":
     # Set server/port from command line
@@ -257,21 +252,11 @@ if __name__ == "__main__":
     listeningPort = "27120"
 
     #This thread will be for communicating with the tracker
-    threading.Thread(target=handleTracker, args=(trackerSock,listeningPort,),daemon=False).start()
+    clientThread = threading.Thread(target=handleTracker, args=(trackerSock,listeningPort,),daemon=False)
+    clientThread.start()
 
-    #Create a listening socket to receive requests from peers
-    listener = socket(AF_INET, SOCK_STREAM)
-    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    listener.bind(('', int(listeningPort)))
-    listener.listen(4)
+    serverThread = threading.Thread(target=listen, args=(), daemon=True)
+    serverThread.start()
 
-    #Handle clients as they make requests. Only allow 4 clients to make requests
-    #At a time as not to be overloaded
-    running = True
-    while running:
-        try:
-            threading.Thread(target=handleClient, args=(listener.accept(),),daemon=True).start()
-        except KeyboardInterrupt:
-            running = False
-    #clientSock.close()
-
+    clientThread.join()
+    serverThread.join()
