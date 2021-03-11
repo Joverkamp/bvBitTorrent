@@ -4,6 +4,7 @@ from sys import argv
 from pathlib import Path
 import threading
 import os
+import hashlib
 
 fileData = []
 fileLock = threading.Lock()
@@ -106,18 +107,26 @@ def getTargetClient(clientList, chunkNum):
         if v[chunkNum] == "1":
             return k
 
-def getChunk(ip, port, chunkNum, fileSize, chunkSize, numChunks):
+def getChunk(ip, port, chunkNum, fileSize, sizeDigest, numChunks):
     clientSock = socket(AF_INET, SOCK_STREAM)
     clientSock.connect( (ip, port) )
+
+    chunkSize = sizeDigest[0]
+    chunkDigest = sizeDigest[1]
 
     msg = str(chunkNum) + "\n"
     msg = msg.encode()
     clientSock.send(msg)
-    if chunkNum < numChunks - 1:
-        chunk = getFullMsg(clientSock, chunkSize)
-    else:
-        chunk = getFullMsg(clientSock, fileSize % chunkSize)
+    chunk = getFullMsg(clientSock, chunkSize)
 
+    currDigest = hashlib.sha224(chunk).hexdigest()
+    print("Correct digest: [" + str(chunkDigest) + "]")
+    print("Our digest: [" + str(currDigest) + "]")
+
+    if currDigest != chunkDigest:
+        return
+
+    print("It's actually writing")
     fileLock.acquire()
     fileData[chunkNum] += chunk
     fileLock.release()
@@ -147,19 +156,20 @@ def handleTracker(trackerSock, listeningPort):
         fileSize += sz
         digest = chunk[1].rstrip()
         chunks.append((sz, digest))
+    print(chunks)
     
     #Send our information to the tracker server
     chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
     ourClientInfo = "{},{}\n".format(listeningPort,chunkMask)
     trackerSock.send(ourClientInfo.encode())   
 
-    connected = True
-    while connected == True:
-        if (chunkMask == "1"*numChunks):
-            if not os.path.isfile(fileName):
-                with open(fileName, "wb") as f:
-                    for chunk in fileData:
-                        f.write(chunk)
+    while True:
+        if chunkMask == "1"*numChunks:
+            with open(fileName, "wb") as f:
+                for chunk in fileData:
+                    f.write(chunk)
+            break
+                
         printCommands()
         command = input("> ")
         #Upadate tracker with mask
@@ -175,6 +185,7 @@ def handleTracker(trackerSock, listeningPort):
         #Request and receive a chunk if it exists in swarm
         elif command == "3":
             chunksToGet = int(input("How many chunks would you like to get?(1-{}) ".format(numChunks)))
+            
             for i in range(chunksToGet):
                 #update peer list
                 #clientList = getClientList(trackerSock)
@@ -186,7 +197,7 @@ def handleTracker(trackerSock, listeningPort):
                 #request chunk
                 #requestChunk(peerInfo, chunkNum)
                 try:
-                    getChunk(targetIPPort[0],int(targetIPPort[1]),chunkToGet,fileSize,chunkSize, numChunks)
+                    getChunk(targetIPPort[0],int(targetIPPort[1]),chunkToGet,fileSize, chunks[chunkToGet], numChunks)
                     chunkMask = addToChunkMask(chunkMask, chunkToGet)
                     print("Got chunk {} successfully.".format(chunkToGet))
                 except:
