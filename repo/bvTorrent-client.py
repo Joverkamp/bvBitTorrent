@@ -178,13 +178,8 @@ def handleTracker(trackerSock, listeningPort):
     #Check if all chunks have been received and write file
     while connected == True:
         try:
-            if (chunkMask == "1"*numChunks):
-                with open(fileName, "wb") as f:
-                    for chunk in fileData:
-                        f.write(chunk)
-                break
             #run threads to fetch chunks
-            clientList = getSudoClientList()
+            clientList = getClientList(trackerSock)
             #get info for peer who has least common chunk
             peerMasks = getMasks(clientList)
             numChunksToGet = min(4, numChunks-numPossessed)
@@ -208,10 +203,15 @@ def handleTracker(trackerSock, listeningPort):
 
             for i in range(len(threads)):
                 threads[i].join()
-                updateMask(trackerSock, chunkMask)
                 chunkMask = addToChunkMask(chunkMask, chunksToGet[i])
+                updateMask(trackerSock, chunkMask)
                 numPossessed += 1
-
+            
+            if (chunkMask == "1"*numChunks):
+                with open(fileName, "wb") as f:
+                    for chunk in fileData:
+                        f.write(chunk)
+                break
         except KeyboardInterrupt:
             running = False
             disconnect(trackerSock)
