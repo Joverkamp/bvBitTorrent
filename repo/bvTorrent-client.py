@@ -167,10 +167,10 @@ def handleTracker(trackerSock, listeningPort):
     while connected == True:
         try:
             if (chunkMask == "1"*numChunks):
-                if not os.path.isfile(fileName):
-                    with open(fileName, "wb") as f:
-                        for chunk in fileData:
-                            f.write(chunk)
+                with open(fileName, "wb") as f:
+                    for chunk in fileData:
+                        f.write(chunk)
+                break
             #run threads to fetch chunks
             clientList = getSudoClientList()
             #get info for peer who has least common chunk
@@ -180,13 +180,13 @@ def handleTracker(trackerSock, listeningPort):
             targetIP = targetIPPort[0]
             targetPort = int(targetIPPort[1])
             #request chunk
-            try:
-                getChunk(targetIP,targetPort,chunkToGet,fileSize,chunkSize,numChunks)
-                updateMask(trackerSock, chunkMask)
-                chunkMask = addToChunkMask(chunkMask, chunkToGet)
-                numPossessed += 1
-            except:
-                pass
+#            try:
+            getChunk(targetIP,targetPort,chunkToGet,fileSize,chunkSize,numChunks)
+            updateMask(trackerSock, chunkMask)
+            chunkMask = addToChunkMask(chunkMask, chunkToGet)
+            numPossessed += 1
+#            except:
+#                pass
 
         except KeyboardInterrupt:
             running = False
