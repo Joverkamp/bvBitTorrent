@@ -26,6 +26,12 @@ def getFullMsg(conn, msgLength):
             break   
     return msg
 
+def updateMask(trackerSock, mask):
+    msg = "UPDATE_MASK\n"
+    trackerSock.send(msg.encode())
+    msg = "{}\n".format(mask) 
+    trackerSock.send(msg.encode())
+
 def getClientList(trackerSock):
     msg = "CLIENT_LIST\n"
     trackerSock.send(msg.encode())
@@ -58,7 +64,7 @@ def printClients(clientList):
         ip = ipPort[0]
         port = ipPort[1]
         print("{}:{} - {}".format(ip, port, mask))
-        print("------------------------------------------------------")
+        print("-----------------------------------")
 
 def printCommands():
     print("Commands")
@@ -139,6 +145,7 @@ def handleTracker(trackerSock, listeningPort):
         fileData.append(b'')
     fileLock.release()
     
+    #fill up list of chunk digests
     fileSize = 0
     chunks = []
     for i in range(numChunks):
@@ -152,15 +159,39 @@ def handleTracker(trackerSock, listeningPort):
     chunkMask = "0" * numChunks#FIXME function to initialize chunks we have
     ourClientInfo = "{},{}\n".format(listeningPort,chunkMask)
     trackerSock.send(ourClientInfo.encode())   
-
+    
+    numPossessed = 0
+    #Send command to tracker until connection is closed
     connected = True
+    #Check if all chunks have been received and write file
     while connected == True:
-        if (chunkMask == "1"*numChunks):
-            if not os.path.isfile(fileName):
-                with open(fileName, "wb") as f:
-                    for chunk in fileData:
-                        f.write(chunk)
-        printCommands()
+        try:
+            if (chunkMask == "1"*numChunks):
+                if not os.path.isfile(fileName):
+                    with open(fileName, "wb") as f:
+                        for chunk in fileData:
+                            f.write(chunk)
+            #run threads to fetch chunks
+            clientList = getSudoClientList()
+            #get info for peer who has least common chunk
+            peerMasks = getMasks(clientList)
+            chunkToGet = getScarceChunk(peerMasks, chunkMask)
+            targetIPPort = getTargetClient(clientList, chunkToGet).split(':')
+            targetIP = targetIPPort[0]
+            targetPort = int(targetIPPort[1])
+            #request chunk
+            try:
+                getChunk(targetIP,targetPort,chunkToGet,fileSize,chunkSize,numChunks)
+                updateMask(trackerSock, chunkMask)
+                chunkMask = addToChunkMask(chunkMask, chunkToGet)
+                numPossessed += 1
+            except:
+                pass
+
+        except KeyboardInterrupt:
+            running = False
+            disconnect(trackerSock)
+'''        printCommands()
         command = input("> ")
         #Upadate tracker with mask
         if command == "1":
@@ -174,23 +205,32 @@ def handleTracker(trackerSock, listeningPort):
             printClients(clientList)
         #Request and receive a chunk if it exists in swarm
         elif command == "3":
-            chunksToGet = int(input("How many chunks would you like to get?(1-{}) ".format(numChunks)))
-            for i in range(chunksToGet):
-                #update peer list
-                #clientList = getClientList(trackerSock)
-                clientList = getSudoClientList()
-                peerMasks = getMasks(clientList)
-                chunkToGet = getScarceChunk(peerMasks, chunkMask)
-                targetIPPort = getTargetClient(clientList, chunkToGet).split(':')
-                #get info for peer who has least common chunk
-                #request chunk
-                #requestChunk(peerInfo, chunkNum)
-                try:
-                    getChunk(targetIPPort[0],int(targetIPPort[1]),chunkToGet,fileSize,chunkSize, numChunks)
-                    chunkMask = addToChunkMask(chunkMask, chunkToGet)
-                    print("Got chunk {} successfully.".format(chunkToGet))
-                except:
-                    print("Could not download chunk {}.".format(chunkToGet))
+            if numChunks == numPosssessed:
+                print("No more chunks too request!")
+            else:
+                numChunksToGet = int(input("How many chunks would you like to get?(1-{}) ".format(numChunks - numPossessed)))
+                if numChunksToGet > (numChunks - numPossessed) or numChunksToGet < 1:
+                    print("Invalid number of chunks.")
+                else:
+                    for i in range(numChunksToGet):
+                        #update peer list
+                        #clientList = getClientList(trackerSock)
+                        clientList = getSudoClientList()
+                        #get info for peer who has least common chunk
+                        peerMasks = getMasks(clientList)
+                        chunkToGet = getScarceChunk(peerMasks, chunkMask)
+                        targetIPPort = getTargetClient(clientList, chunkToGet).split(':')
+                        targetIP = targetIPPort[0]
+                        targetPort = int(targetIPPort[1])
+                        #request chunk
+                        try:
+                            getChunk(targetIP,targetPort,chunkToGet,fileSize,chunkSize,numChunks)
+                            chunkMask = addToChunkMask(chunkMask, chunkToGet)
+                            numPossessed += 1
+                            print("Got chunk {} successfully.".format(chunkToGet))
+                        except:
+                            print("Could not download chunk {}.".format(chunkToGet))
+                    print("You have currently downloaded {} chunks out of {}.".format(numPossessed,numChunks))
         #Disconnect from swarm
         elif command == "4":
             disconnect(trackerSock)
@@ -199,12 +239,12 @@ def handleTracker(trackerSock, listeningPort):
         else:
             print("Invalid Command")
         print()
+'''
 
-
-#A peer has made a request for one of your chunks we can assume that we
-#We should have the chunk available to send to the peer as they have 
-#Already checked our chunk mask. However if somethin went wrong we should
-#Send a negative acknowledgement
+#A peer has made a request for one of your chunks. They have already updated
+#their peer list just before making this request and between any following
+#requests. There should not be a case in which they request a chunk we do not
+#have. However if that is so, we will send will simply close the connection.
 def handleClient(connInfo):
     clientConn, clientInfo = connInfo
 
