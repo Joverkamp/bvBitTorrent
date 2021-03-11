@@ -10,10 +10,10 @@ import random
 port = 34344
 
 
-filename = "culture.txt"
+filename = "eclipse.mp4"
 fileLock = threading.Lock()
-fileSize = 2242226
-chunkSize = 2**17
+fileSize = 17744344
+chunkSize = 2**20
 numChunks = math.ceil(fileSize/chunkSize)
 
 sock = socket(AF_INET, SOCK_STREAM)
