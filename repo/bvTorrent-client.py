@@ -203,9 +203,12 @@ def handleTracker(trackerSock, listeningPort):
 
             for i in range(len(threads)):
                 threads[i].join()
-                chunkMask = addToChunkMask(chunkMask, chunksToGet[i])
-                updateMask(trackerSock, chunkMask)
-                numPossessed += 1
+                if fileData[chunksToGet[i]] == b'':
+                    pass
+                else:
+                    chunkMask = addToChunkMask(chunkMask, chunksToGet[i])
+                    updateMask(trackerSock, chunkMask)
+                    numPossessed += 1
             
             if (chunkMask == "1"*numChunks):
                 with open(fileName, "wb") as f:
