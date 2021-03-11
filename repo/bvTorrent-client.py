@@ -45,28 +45,6 @@ def getClientList(trackerSock):
         clientList.update({clientIPPort: clientMask}) 
     return clientList
 
-def getSudoClientList():
-    sudoList = {
-        "10.172.0.249:34344":"11111111111111111",
-        "10.12.32.45:12345":"00010001011100001",
-        "12.43.86.12:96592":"01001101101010010",
-        "11.11.11.01:37584":"01101100100001111",
-        "10.32.07.19:19593":"11111000110100000",
-        "17.17.19.14:99999":"11110101001101111",
-        "16.11.60.34:64646":"11011001010101111"}
-    return sudoList
-
-def printClients(clientList):
-    print()
-    print("Client List")   
-    for client in clientList:
-        mask = clientList[client]
-        ipPort = client.split(":")
-        ip = ipPort[0]
-        port = ipPort[1]
-        print("{}:{} - {}".format(ip, port, mask))
-        print("-----------------------------------")
-
 def printCommands():
     print("Commands")
     print("   [1] Update Mask")
@@ -86,7 +64,7 @@ def getMasks(clientList):
         masks.append(mask)
     return masks
 
-def getScarceChunk(masks, ourMask, numBlocks):
+def getScarceChunks(masks, ourMask, numBlocks):
     chunkOwners = {}
     for i in range(0, len(ourMask)):
         chunkOwners[i] = 0
@@ -129,13 +107,10 @@ def getChunk(ip, port, chunkNum, fileSize, sizeDigest, numChunks):
     chunk = getFullMsg(clientSock, chunkSize)
 
     currDigest = hashlib.sha224(chunk).hexdigest()
-    print("Correct digest: [" + str(chunkDigest) + "]")
-    print("Our digest: [" + str(currDigest) + "]")
 
     if currDigest != chunkDigest:
         return
 
-    print("It's actually writing")
     fileLock.acquire()
     fileData[chunkNum] += chunk
     fileLock.release()
@@ -183,7 +158,7 @@ def handleTracker(trackerSock, listeningPort):
             #get info for peer who has least common chunk
             peerMasks = getMasks(clientList)
             numChunksToGet = min(4, numChunks-numPossessed)
-            chunksToGet = getScarceChunk(peerMasks, chunkMask, numChunksToGet)
+            chunksToGet = getScarceChunks(peerMasks, chunkMask, numChunksToGet)
             threads = []
             for i in range(0, numChunksToGet):
                 targetIPPort = getTargetClient(clientList, chunksToGet[i]).split(':')
@@ -214,6 +189,8 @@ def handleTracker(trackerSock, listeningPort):
                 with open(fileName, "wb") as f:
                     for chunk in fileData:
                         f.write(chunk)
+                print("{} successfully downloaded!".format(fileName))
+                print("Press ctrl+c to exit torrent...")
                 break
         except KeyboardInterrupt:
             running = False
