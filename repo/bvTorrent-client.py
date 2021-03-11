@@ -4,6 +4,7 @@ from sys import argv
 from pathlib import Path
 import threading
 import os
+import hashlib
 
 fileData = []
 fileLock = threading.Lock()
@@ -112,18 +113,26 @@ def getTargetClient(clientList, chunkNum):
         if v[chunkNum] == "1":
             return k
 
-def getChunk(ip, port, chunkNum, fileSize, chunkSize, numChunks):
+def getChunk(ip, port, chunkNum, fileSize, sizeDigest, numChunks):
     clientSock = socket(AF_INET, SOCK_STREAM)
     clientSock.connect( (ip, port) )
+
+    chunkSize = sizeDigest[0]
+    chunkDigest = sizeDigest[1]
 
     msg = str(chunkNum) + "\n"
     msg = msg.encode()
     clientSock.send(msg)
-    if chunkNum < numChunks - 1:
-        chunk = getFullMsg(clientSock, chunkSize)
-    else:
-        chunk = getFullMsg(clientSock, fileSize % chunkSize)
+    chunk = getFullMsg(clientSock, chunkSize)
 
+    currDigest = hashlib.sha224(chunk).hexdigest()
+    print("Correct digest: [" + str(chunkDigest) + "]")
+    print("Our digest: [" + str(currDigest) + "]")
+
+    if currDigest != chunkDigest:
+        return
+
+    print("It's actually writing")
     fileLock.acquire()
     fileData[chunkNum] += chunk
     fileLock.release()
@@ -181,7 +190,7 @@ def handleTracker(trackerSock, listeningPort):
             targetPort = int(targetIPPort[1])
             #request chunk
 #            try:
-            getChunk(targetIP,targetPort,chunkToGet,fileSize,chunkSize,numChunks)
+            getChunk(targetIP,targetPort,chunkToGet,fileSize,chunks[chunkToGet],numChunks)
             updateMask(trackerSock, chunkMask)
             chunkMask = addToChunkMask(chunkMask, chunkToGet)
             numPossessed += 1
@@ -191,55 +200,7 @@ def handleTracker(trackerSock, listeningPort):
         except KeyboardInterrupt:
             running = False
             disconnect(trackerSock)
-'''        printCommands()
-        command = input("> ")
-        #Upadate tracker with mask
-        if command == "1":
-            msg = "UPDATE_MASK\n"
-            trackerSock.send(msg.encode())
-            msg = "{}\n".format(chunkMask) 
-            trackerSock.send(msg.encode())
-        #Get and view clients connected to tracker
-        elif command == "2":
-            clientList = getClientList(trackerSock)
-            printClients(clientList)
-        #Request and receive a chunk if it exists in swarm
-        elif command == "3":
-            if numChunks == numPosssessed:
-                print("No more chunks too request!")
-            else:
-                numChunksToGet = int(input("How many chunks would you like to get?(1-{}) ".format(numChunks - numPossessed)))
-                if numChunksToGet > (numChunks - numPossessed) or numChunksToGet < 1:
-                    print("Invalid number of chunks.")
-                else:
-                    for i in range(numChunksToGet):
-                        #update peer list
-                        #clientList = getClientList(trackerSock)
-                        clientList = getSudoClientList()
-                        #get info for peer who has least common chunk
-                        peerMasks = getMasks(clientList)
-                        chunkToGet = getScarceChunk(peerMasks, chunkMask)
-                        targetIPPort = getTargetClient(clientList, chunkToGet).split(':')
-                        targetIP = targetIPPort[0]
-                        targetPort = int(targetIPPort[1])
-                        #request chunk
-                        try:
-                            getChunk(targetIP,targetPort,chunkToGet,fileSize,chunkSize,numChunks)
-                            chunkMask = addToChunkMask(chunkMask, chunkToGet)
-                            numPossessed += 1
-                            print("Got chunk {} successfully.".format(chunkToGet))
-                        except:
-                            print("Could not download chunk {}.".format(chunkToGet))
-                    print("You have currently downloaded {} chunks out of {}.".format(numPossessed,numChunks))
-        #Disconnect from swarm
-        elif command == "4":
-            disconnect(trackerSock)
-            connected = False
-        #Must print valid command
-        else:
-            print("Invalid Command")
-        print()
-'''
+            
 
 #A peer has made a request for one of your chunks. They have already updated
 #their peer list just before making this request and between any following
