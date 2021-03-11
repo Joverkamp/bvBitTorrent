@@ -192,8 +192,9 @@ def handleTracker(trackerSock, listeningPort):
 #            try:
             getChunk(targetIP,targetPort,chunkToGet,fileSize,chunks[chunkToGet],numChunks)
             updateMask(trackerSock, chunkMask)
-            chunkMask = addToChunkMask(chunkMask, chunkToGet)
-            numPossessed += 1
+            if fileData[chunkToGet] == b'':
+                chunkMask = addToChunkMask(chunkMask, chunkToGet)
+                numPossessed += 1
 #            except:
 #                pass
 
