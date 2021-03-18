@@ -6,6 +6,9 @@ import threading
 import os
 import hashlib
 
+# Creating a global list to store file data. Which I hate. I'd rather write it
+# to disk immediately, but to write the middle of a file with python you need
+# the whole thing in memory anyway, so might as well do this annoyingness
 fileData = []
 fileLock = threading.Lock()
 running = True
@@ -29,6 +32,7 @@ def getFullMsg(conn, msgLength):
             break   
     return msg
 
+# Two functions to communicate with the tracker server
 def updateMask(trackerSock, mask):
     msg = "UPDATE_MASK\n"
     trackerSock.send(msg.encode())
@@ -47,19 +51,24 @@ def getClientList(trackerSock):
         clientList.update({clientIPPort: clientMask}) 
     return clientList
 
+# A function modify our own mask before sending updates to the server
 def addToChunkMask(chunkMask,i):
     maskList = list(chunkMask)
     if maskList[i] == "0":
         maskList[i] = "1"
     return "".join(maskList)
 
+# Getting just the client masks from the client dictionary.
 def getMasks(clientList):
     masks = []
     for client, mask in clientList.items():
         masks.append(mask)
     return masks
 
+# Returning a list (of length numBlocks) of the top scarce chunks in the torrent
 def getScarceChunks(masks, ourMask, numBlocks):
+    # Creating a dictionary where the key is the number of the chunk and the
+    # value is how often it appears
     chunkOwners = {}
     for i in range(0, len(ourMask)):
         chunkOwners[i] = 0
@@ -68,6 +77,9 @@ def getScarceChunks(masks, ourMask, numBlocks):
         for i in range(0, len(mask)):
             chunkOwners[i] += int(mask[i])
 
+    # Iterating through that dictionary. If the current value is lower than the 
+    # highest value in minVals, then we replace that block in targetBlocks with
+    # the current key.
     targetBlocks = []
     minVals = []
     for block, numOwners in chunkOwners.items():
@@ -84,14 +96,18 @@ def getScarceChunks(masks, ourMask, numBlocks):
 
     return targetBlocks
 
+# Getting the ip:port of the first client we encounter who has the target chunk
 def getTargetClient(clientList, chunkNum):
     for k,v in clientList.items():
         if v[chunkNum] == "1":
             return k
 
+# Actually connecting to another client and getting a chunk
 def getChunk(ip, port, chunkNum, fileSize, sizeDigest, numChunks):
     clientSock = socket(AF_INET, SOCK_STREAM)
     clientSock.connect( (ip, port) )
+
+    print("Requesting chunk %d from client [%s:%d]" % (chunkNum, ip, port))
 
     chunkSize = sizeDigest[0]
     chunkDigest = sizeDigest[1]
@@ -152,6 +168,8 @@ def handleTracker(trackerSock, listeningPort):
             clientList = getClientList(trackerSock)
             #get info for peer who has least common chunk
             peerMasks = getMasks(clientList)
+            # Getting 4 chunks by default because there's a decent chance that
+            # more would start overwhelm the wifi this'll be running on
             numChunksToGet = min(4, numChunks-numPossessed)
             chunksToGet = getScarceChunks(peerMasks, chunkMask, numChunksToGet)
             threads = []
@@ -173,6 +191,8 @@ def handleTracker(trackerSock, listeningPort):
 
             for i in range(len(threads)):
                 threads[i].join()
+                # If this array is empty, it means that the thread didn't fetch
+                # any data, so don't update metadata. Else, update metadata
                 if fileData[chunksToGet[i]] == b'':
                     pass
                 else:
@@ -205,8 +225,13 @@ def handleClient(connInfo):
     try:
         chunk = int(chunkStr)
     except ValueError:
+        print("Rejected request from client [%s:%d]" 
+                % (clientInfo[0],clientInfo[1]))
         clientConn.close()
         return
+
+    print("Recieved connection from client [%s:%d]. Sending chunk %d"
+            % (clientInfo[0], clientInfo[1], chunk))
 
     fileLock.acquire()
     if fileData[chunk] == b'':
@@ -220,20 +245,12 @@ def handleClient(connInfo):
 
 def listen():
     #Create a listening socket to receive requests from peers
-    listener = socket(AF_INET, SOCK_STREAM)
-    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    listener.bind(('', int(listeningPort)))
     listener.listen(4)
 
     #Handle clients as they make requests. Only allow 4 clients to make requests
     #At a time as not to be overloaded
     while running:
-#        try:
         threading.Thread(target=handleClient, args=(listener.accept(),),daemon=True).start()
-#        except KeyboardInterrupt:
-#            runLock.acquire()
-#            running = False
-           # runLock.release()
 
 
 
@@ -249,7 +266,11 @@ if __name__ == "__main__":
     # Establish connection to tracker
     trackerSock = socket(AF_INET, SOCK_STREAM)
     trackerSock.connect( (serverIP, serverPort) )
-    listeningPort = "27120"
+    # And open a socket ofr other people to connect to
+    listener = socket(AF_INET, SOCK_STREAM)
+    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    listener.bind(('', 0))
+    listeningPort = listener.getsockname()[1]
 
     #This thread will be for communicating with the tracker
     clientThread = threading.Thread(target=handleTracker, args=(trackerSock,listeningPort,),daemon=False)
