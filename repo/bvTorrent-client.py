@@ -230,7 +230,7 @@ def handleClient(connInfo):
         clientConn.close()
         return
 
-    print("Recieved connection from client [%s:%d]. Requesting chunk %d"
+    print("Recieved connection from client [%s:%d]. Sending chunk %d"
             % (clientInfo[0], clientInfo[1], chunk))
 
     fileLock.acquire()
