@@ -245,9 +245,6 @@ def handleClient(connInfo):
 
 def listen():
     #Create a listening socket to receive requests from peers
-    listener = socket(AF_INET, SOCK_STREAM)
-    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    listener.bind(('', int(listeningPort)))
     listener.listen(4)
 
     #Handle clients as they make requests. Only allow 4 clients to make requests
@@ -269,7 +266,11 @@ if __name__ == "__main__":
     # Establish connection to tracker
     trackerSock = socket(AF_INET, SOCK_STREAM)
     trackerSock.connect( (serverIP, serverPort) )
-    listeningPort = "27120"
+    # And open a socket ofr other people to connect to
+    listener = socket(AF_INET, SOCK_STREAM)
+    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    listener.bind(('', 0))
+    listeningPort = listener.getsockname()[1]
 
     #This thread will be for communicating with the tracker
     clientThread = threading.Thread(target=handleTracker, args=(trackerSock,listeningPort,),daemon=False)
